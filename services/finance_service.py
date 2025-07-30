@@ -42,8 +42,10 @@ def _clean_currency_value(value):
     except (ValueError, TypeError):
         return 0.0
 
+# No arquivo services/finance_service.py
+
 def _fetch_and_process_data():
-    """Busca os dados do Google Sheets e os processa."""
+    """Busca os dados do Google Sheets e os processa, tentando múltiplas codificações."""
     print(f"Buscando dados da planilha... ({datetime.now()})")
     try:
         sheet_id = Config.GOOGLE_SHEET_URL.split('/d/')[1].split('/')[0]
@@ -52,16 +54,33 @@ def _fetch_and_process_data():
         response = requests.get(csv_url, timeout=15)
         response.raise_for_status()
 
-        # --- INÍCIO DA CORREÇÃO DEFINITIVA ---
-        # Lê os dados diretamente dos bytes da resposta, evitando erros de dupla decodificação
-        df = pd.read_csv(BytesIO(response.content), header=1, encoding='utf-8')
-        # --- FIM DA CORREÇÃO DEFINITIVA ---
+        # --- INÍCIO DA NOVA CORREÇÃO FLEXÍVEL ---
+        encodings_to_try = ['utf-8', 'latin-1', 'iso-8859-1', 'cp1252']
+        df = None
         
-        # --- Limpeza e Processamento do DataFrame ---
+        for encoding in encodings_to_try:
+            try:
+                print(f"Tentando ler com a codificação: {encoding}")
+                df = pd.read_csv(BytesIO(response.content), header=1, encoding=encoding)
+                print(f"Sucesso! Dados lidos com {encoding}.")
+                break  # Se funcionou, sai do laço
+            except UnicodeDecodeError:
+                print(f"Falha ao decodificar com {encoding}. Tentando a próxima...")
+                continue # Se falhou, tenta a próxima codificação
+
+        if df is None:
+            # Se nenhum encoding funcionou, lança um erro
+            raise ValueError("Não foi possível decodificar os dados da planilha com as codificações testadas.")
+        # --- FIM DA NOVA CORREÇÃO FLEXÍVEL ---
+        
+        # --- O resto do código de processamento continua igual ---
         df = df.drop(columns=['Unnamed: 0', 'â\x86\x91â\x86\x93'], errors='ignore')
         df.columns = ['Data', 'Tipo', 'Grupo', 'Categoria', 'Item', 'Conta', 'Pagamento', 'Valor']
+        # ... (todo o resto do seu código de processamento que já existia) ...
+        # ... (o código é longo, então não vou colar tudo aqui, apenas garanta que ele continue após o bloco acima) ...
         
-        df = df.dropna(how='all', subset=df.columns[1:]) # Manter se tiver algo além da data
+        # O processamento dos dados continua aqui...
+        df = df.dropna(how='all', subset=df.columns[1:])
         df = df.dropna(subset=['Data', 'Tipo', 'Valor'])
 
         df['Valor'] = df['Valor'].apply(_clean_currency_value)
@@ -74,13 +93,10 @@ def _fetch_and_process_data():
         df['Mes'] = df['Data'].dt.month
         df['MesAno'] = df['Data'].dt.strftime('%Y-%m')
         
-        # --- Cálculos e Agregações ---
         total_entradas = df[df['Tipo'] == 'Receita']['Valor'].sum()
         total_saidas = df[df['Tipo'] == 'Despesa']['Valor'].sum()
-        
         df_despesas = df[df['Tipo'] == 'Despesa']
         
-        # Cards de Resumo
         df_sem_reserva = df[~df['Categoria'].str.contains('Reserva', na=False)]
         valor_conta = df_sem_reserva[df_sem_reserva['Tipo'] == 'Receita']['Valor'].sum() - df_sem_reserva[df_sem_reserva['Tipo'] == 'Despesa']['Valor'].sum()
         
@@ -90,8 +106,6 @@ def _fetch_and_process_data():
         df_reserva = df[df['Categoria'].str.contains('Reserva', na=False)]
         valor_reserva = df_reserva[df_reserva['Tipo'] == 'Receita']['Valor'].sum() - df_reserva[df_reserva['Tipo'] == 'Despesa']['Valor'].sum()
 
-        # Preparando dados para o frontend (JSON serializável)
-        # Converte o DataFrame para um formato que não causa problemas com JSON
         transacoes_dict = json.loads(df.to_json(orient='records', date_format='iso'))
 
         dados_finais = {
@@ -111,7 +125,6 @@ def _fetch_and_process_data():
             'meses_disponiveis': sorted(df['MesAno'].unique().tolist())
         }
 
-        # Atualiza o cache
         _cache["data"] = dados_finais
         _cache["last_fetched"] = datetime.now()
         
@@ -120,10 +133,9 @@ def _fetch_and_process_data():
 
     except Exception as e:
         print(f"ERRO CRÍTICO ao buscar ou processar dados: {e}")
-        # Em caso de erro, invalida o cache para tentar de novo na próxima vez
         _cache["data"] = None
         _cache["last_fetched"] = None
-        raise # Propaga o erro para a camada da API tratar
+        raise
 
 def get_financial_data():
     """
