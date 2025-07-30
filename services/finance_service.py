@@ -51,8 +51,14 @@ def _fetch_and_process_data():
         
         response = requests.get(csv_url, timeout=15)
         response.raise_for_status()
-        
-        df = pd.read_csv(StringIO(response.text), header=1)
+
+        # --- INÍCIO DA CORREÇÃO ---
+        # Força a codificação da resposta para UTF-8 ANTES de ler
+        response.encoding = 'utf-8'
+
+        # Lê o CSV especificando a mesma codificação
+        df = pd.read_csv(StringIO(response.text), header=1, encoding='utf-8')
+        # --- FIM DA CORREÇÃO ---
         
         # --- Limpeza e Processamento do DataFrame ---
         df = df.drop(columns=['Unnamed: 0', 'â\x86\x91â\x86\x93'], errors='ignore')
