@@ -5,6 +5,10 @@ from services import finance_service
 
 financial_bp = Blueprint('financial', __name__)
 
+# NO ARQUIVO routes/financial_routes.py (substitua a função existente)
+
+import traceback # Adicione este import no topo do arquivo se ele não existir
+
 @financial_bp.route('/data')
 def get_all_data():
     """Endpoint para obter todos os dados financeiros processados."""
@@ -12,9 +16,17 @@ def get_all_data():
         data = finance_service.get_financial_data()
         return jsonify(data)
     except Exception as e:
-        # Logar o erro real no servidor é uma boa prática
-        print(f"Erro na rota /data: {e}")
-        return jsonify({'error': 'Não foi possível obter os dados financeiros.'}), 500
+        # --- MUDANÇA PARA DEPURAÇÃO ---
+        # Vamos capturar e retornar o erro detalhado para descobrir a causa raiz
+        error_details = traceback.format_exc()
+        print(f"ERRO DETALHADO NA API: \n{error_details}")
+
+        return jsonify({
+            "error": f"Ocorreu um erro interno no servidor.",
+            "detalhes_tecnicos": str(e),
+            "traceback": error_details
+        }), 500
+        # --- FIM DA MUDANÇA ---
 
 @financial_bp.route('/data/<string:mes_ano>')
 def get_data_by_month(mes_ano):
