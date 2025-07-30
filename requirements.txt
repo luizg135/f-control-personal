@@ -1,0 +1,6 @@
+# /seu_projeto/requirements.txt
+Flask
+Flask-Cors
+pandas
+requests
+gunicorn
