@@ -7,20 +7,13 @@ financial_bp = Blueprint('financial', __name__)
 
 # No arquivo routes/financial_routes.py
 
-@financial_bp.route('/data')
-def get_all_data():
-    """Endpoint para obter todos os dados financeiros processados."""
-    try:
-        data = finance_service.get_financial_data()
-        return jsonify(data)
-    except Exception as e:
-        # Mensagem de erro amigável para o usuário final
-        print(f"Erro na rota /data: {e}")
-        return jsonify({'error': 'Não foi possível obter os dados financeiros.'}), 500
-
-# NO ARQUIVO /routes/financial_routes.py
+# NO ARQUIVO routes/financial_routes.py
 
 import traceback # Verifique se este import está no topo do arquivo
+from flask import Blueprint, jsonify
+from services import finance_service
+
+financial_bp = Blueprint('financial', __name__)
 
 @financial_bp.route('/data')
 def get_all_data():
@@ -33,7 +26,7 @@ def get_all_data():
         # Captura e retorna o erro detalhado para descobrirmos a causa raiz
         error_details = traceback.format_exc()
         print(f"ERRO DETALHADO NA API: \n{error_details}")
-        
+
         return jsonify({
             "error": f"Ocorreu um erro interno no servidor.",
             "detalhes_tecnicos": str(e),
