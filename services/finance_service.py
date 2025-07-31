@@ -29,55 +29,38 @@ def _clean_currency_value(value):
 
 # NO ARQUIVO services/finance_service.py
 
+# NO ARQUIVO services/finance_service.py
+
 def _fetch_and_process_data():
-    """Busca os dados do Google Sheets e os processa com LOGS DE DEPURAÇÃO."""
-    print("--- INICIANDO PROCESSO DE BUSCA E DEPURAÇÃO ---")
+    """Busca os dados do Google Sheets e os processa de forma robusta."""
+    print(f"Buscando dados da planilha... ({datetime.now()})")
     try:
         sheet_id = Config.GOOGLE_SHEET_URL.split('/d/')[1].split('/')[0]
         csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid=0"
         
-        print(f"1. Acessando URL: {csv_url}")
         response = requests.get(csv_url, timeout=15)
         response.raise_for_status()
 
         df = pd.read_csv(BytesIO(response.content), header=1, encoding='utf-8')
         
-        print("2. Dados lidos do CSV. Shape inicial:", df.shape)
-        print("Colunas originais:", list(df.columns))
-        print("Primeiras 3 linhas (RAW):\n", df.head(3).to_string())
-
-        df = df.iloc[:, 1:9]
-        print("\n3. Após fatiar para 8 colunas. Shape:", df.shape)
-        
+        # --- CORREÇÃO FINAL E PRECISA ---
+        # Ignora as 2 primeiras colunas e pega as 8 colunas de dados (da 3ª até a 10ª)
+        df = df.iloc[:, 2:10]
         df.columns = ['Data', 'Tipo', 'Grupo', 'Categoria', 'Item', 'Conta', 'Pagamento', 'Valor']
-        print("4. Colunas renomeadas.")
-        print("Primeiras 3 linhas (Após renomear):\n", df.head(3).to_string())
-
+        
+        # Lógica de limpeza aprimorada
         df['Valor'] = df['Valor'].apply(_clean_currency_value)
-        print("\n5. Coluna 'Valor' convertida para número.")
-        
         df['Data'] = pd.to_datetime(df['Data'], dayfirst=True, errors='coerce')
-        print("6. Coluna 'Data' convertida para datetime.")
-        print("Contagem de datas nulas (NaT) após conversão:", df['Data'].isnull().sum())
-
         df.dropna(subset=['Data'], inplace=True)
-        print("\n7. Após remover linhas com datas inválidas. Shape:", df.shape)
-        
         df = df[df['Valor'] > 0]
-        print("8. Após remover linhas com valor <= 0. Shape:", df.shape)
-
         df.dropna(subset=['Tipo'], inplace=True)
-        print("9. Após remover linhas com 'Tipo' vazio. Shape final:", df.shape)
-        
+
         if df.empty:
-            print("\n!!! AVISO: DataFrame ficou vazio após a limpeza. !!!")
-            # O resto do código continua a partir daqui...
-        
-        # ... (O restante da função continua exatamente como antes) ...
-        df['Ano'] = df['Data'].dt.year
-        df['Mes'] = df['Data'].dt.month
+            print("AVISO: Nenhum dado válido encontrado na planilha após a limpeza.")
+            return { 'resumo': {'saldo': 0, 'total_entradas': 0, 'total_saidas': 0, 'valor_alimentacao': 0, 'valor_conta': 0, 'valor_reserva': 0}, 'despesas_por_categoria': {}, 'despesas_por_grupo': {}, 'meses_disponiveis': [], 'por_tipo': {}, 'saldo_mensal': {}, 'transacoes': [] }
+
+        # Processamento e cálculos
         df['MesAno'] = df['Data'].dt.strftime('%Y-%m')
-        
         total_entradas = df[df['Tipo'] == 'Receita']['Valor'].sum()
         total_saidas = df[df['Tipo'] == 'Despesa']['Valor'].sum()
         df_despesas = df[df['Tipo'] == 'Despesa']
@@ -111,11 +94,11 @@ def _fetch_and_process_data():
         _cache["data"] = dados_finais
         _cache["last_fetched"] = datetime.now()
         
-        print("\n--- PROCESSO CONCLUÍDO COM SUCESSO ---")
+        print("Dados processados e cache atualizado com sucesso.")
         return dados_finais
 
     except Exception as e:
-        print(f"--- ERRO CRÍTICO NO PROCESSAMENTO: {e} ---")
+        print(f"ERRO CRÍTICO ao buscar ou processar dados: {e}")
         import traceback
         traceback.print_exc()
         _cache["data"] = None
