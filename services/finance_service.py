@@ -43,9 +43,21 @@ def _fetch_and_process_data():
         df = df[df['Valor'] > 0]
         df.dropna(subset=['Tipo'], inplace=True)
         
+        # No lugar do bloco 'if df.empty' antigo
         if df.empty:
-            # ... (código para dataframe vazio continua o mesmo) ...
-            return { 'resumo': {'saldo': 0, ...}, ... }
+            print("AVISO: Nenhum dado válido encontrado na planilha após a limpeza.")
+            # --- INÍCIO DA CORREÇÃO ---
+            # Retorna a estrutura completa e zerada, sem erros de sintaxe
+            return {
+                'resumo': {'saldo': 0, 'total_entradas': 0, 'total_saidas': 0, 'valor_alimentacao': 0, 'valor_conta': 0, 'valor_reserva': 0},
+                'despesas_por_categoria': {},
+                'despesas_por_grupo': {},
+                'meses_disponiveis': [],
+                'por_tipo': {},
+                'saldo_mensal': {},
+                'transacoes': []
+            }
+            # --- FIM DA CORREÇÃO ---
 
         df['MesAno'] = df['Data'].dt.strftime('%Y-%m')
         
