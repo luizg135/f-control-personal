@@ -61,8 +61,16 @@ def _fetch_and_process_data():
 
         # Processamento e cálculos
         df['MesAno'] = df['Data'].dt.strftime('%Y-%m')
-        total_entradas = df[df['Tipo'] == 'Receita']['Valor'].sum()
-        total_saidas = df[df['Tipo'] == 'Despesa']['Valor'].sum()
+        # --- INÍCIO DA CORREÇÃO ---
+        is_reserva = df['Categoria'].str.contains('Reserva', na=False)
+        is_ajuste = df['Grupo'].str.contains('Ajuste', na=False)
+        is_receita = df['Tipo'] == 'Receita'
+        is_despesa = df['Tipo'] == 'Despesa'
+
+        # Calcula totais do período ignorando transações de ajuste E de reserva
+        total_entradas = df[is_receita & ~is_ajuste & ~is_reserva]['Valor'].sum()
+        total_saidas = df[is_despesa & ~is_ajuste & ~is_reserva]['Valor'].sum()
+        # --- FIM DA CORREÇÃO ---
         df_despesas = df[df['Tipo'] == 'Despesa']
 
         is_reserva = df['Categoria'].str.contains('Reserva', na=False)
