@@ -27,51 +27,53 @@ def _clean_currency_value(value):
 
 # NO ARQUIVO services/finance_service.py
 
+# NO ARQUIVO services/finance_service.py
+
 def _fetch_and_process_data():
-    """Busca os dados do Google Sheets e os processa de forma mais robusta."""
-    print(f"Buscando dados da planilha... ({datetime.now()})")
+    """Busca os dados do Google Sheets e os processa com LOGS DE DEPURAÇÃO."""
+    print("--- INICIANDO PROCESSO DE BUSCA E DEPURAÇÃO ---")
     try:
         sheet_id = Config.GOOGLE_SHEET_URL.split('/d/')[1].split('/')[0]
         csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid=0"
         
+        print(f"1. Acessando URL: {csv_url}")
         response = requests.get(csv_url, timeout=15)
         response.raise_for_status()
 
-        # Tenta ler o CSV com a codificação correta
         df = pd.read_csv(BytesIO(response.content), header=1, encoding='utf-8')
         
-        # Seleciona as colunas de dados (B até I) e as renomeia
+        print("2. Dados lidos do CSV. Shape inicial:", df.shape)
+        print("Colunas originais:", list(df.columns))
+        print("Primeiras 3 linhas (RAW):\n", df.head(3).to_string())
+
         df = df.iloc[:, 1:9]
+        print("\n3. Após fatiar para 8 colunas. Shape:", df.shape)
+        
         df.columns = ['Data', 'Tipo', 'Grupo', 'Categoria', 'Item', 'Conta', 'Pagamento', 'Valor']
-        
-        # --- INÍCIO DA LÓGICA DE LIMPEZA APRIMORADA ---
+        print("4. Colunas renomeadas.")
+        print("Primeiras 3 linhas (Após renomear):\n", df.head(3).to_string())
 
-        # 1. Converte a coluna 'Valor' para número primeiro.
-        #    Isso garante que tenhamos um valor numérico antes de qualquer filtro.
         df['Valor'] = df['Valor'].apply(_clean_currency_value)
-
-        # 2. Converte a coluna 'Data' para datetime de forma mais flexível.
-        #    'dayfirst=True' ajuda a interpretar 'dd/mm/yyyy' corretamente. 'coerce' transforma erros em NaT (Not a Time).
-        df['Data'] = pd.to_datetime(df['Data'], dayfirst=True, errors='coerce')
-
-        # 3. Agora, remove as linhas que não são válidas.
-        #    Remove qualquer linha onde a conversão da data falhou.
-        df.dropna(subset=['Data'], inplace=True)
-        # Remove qualquer linha onde o valor é 0 ou menor, ou onde o 'Tipo' está em branco.
-        df = df[df['Valor'] > 0]
-        df.dropna(subset=['Tipo'], inplace=True)
-
-        # --- FIM DA LÓGICA DE LIMPEZA APRIMORADA ---
+        print("\n5. Coluna 'Valor' convertida para número.")
         
-        # Se após a limpeza o dataframe estiver vazio, retorna uma estrutura vazia controlada
-        if df.empty:
-            print("AVISO: Nenhum dado válido encontrado na planilha após a limpeza.")
-            return {
-                'resumo': {'saldo': 0, 'total_entradas': 0, 'total_saidas': 0, 'valor_alimentacao': 0, 'valor_conta': 0, 'valor_reserva': 0},
-                'despesas_por_categoria': {}, 'despesas_por_grupo': {}, 'meses_disponiveis': [], 'por_tipo': {}, 'saldo_mensal': {}, 'transacoes': []
-            }
+        df['Data'] = pd.to_datetime(df['Data'], dayfirst=True, errors='coerce')
+        print("6. Coluna 'Data' convertida para datetime.")
+        print("Contagem de datas nulas (NaT) após conversão:", df['Data'].isnull().sum())
 
-        # Continua com o processamento normal se houver dados
+        df.dropna(subset=['Data'], inplace=True)
+        print("\n7. Após remover linhas com datas inválidas. Shape:", df.shape)
+        
+        df = df[df['Valor'] > 0]
+        print("8. Após remover linhas com valor <= 0. Shape:", df.shape)
+
+        df.dropna(subset=['Tipo'], inplace=True)
+        print("9. Após remover linhas com 'Tipo' vazio. Shape final:", df.shape)
+        
+        if df.empty:
+            print("\n!!! AVISO: DataFrame ficou vazio após a limpeza. !!!")
+            # O resto do código continua a partir daqui...
+        
+        # ... (O restante da função continua exatamente como antes) ...
         df['Ano'] = df['Data'].dt.year
         df['Mes'] = df['Data'].dt.month
         df['MesAno'] = df['Data'].dt.strftime('%Y-%m')
@@ -80,7 +82,6 @@ def _fetch_and_process_data():
         total_saidas = df[df['Tipo'] == 'Despesa']['Valor'].sum()
         df_despesas = df[df['Tipo'] == 'Despesa']
 
-        # Lógica de cálculo dos cards
         is_reserva = df['Categoria'].str.contains('Reserva', na=False)
         is_alimentacao = df['Conta'].str.contains('Alimentação', na=False)
         is_receita = df['Tipo'] == 'Receita'
@@ -98,14 +99,7 @@ def _fetch_and_process_data():
         transacoes_dict = json.loads(df.to_json(orient='records', date_format='iso'))
 
         dados_finais = {
-            'resumo': {
-                'total_entradas': total_entradas,
-                'total_saidas': total_saidas,
-                'saldo': total_entradas - total_saidas,
-                'valor_conta': valor_conta,
-                'valor_alimentacao': valor_alimentacao,
-                'valor_reserva': valor_reserva
-            },
+            'resumo': { 'total_entradas': total_entradas, 'total_saidas': total_saidas, 'saldo': total_entradas - total_saidas, 'valor_conta': valor_conta, 'valor_alimentacao': valor_alimentacao, 'valor_reserva': valor_reserva },
             'por_tipo': df.groupby('Tipo')['Valor'].sum().to_dict(),
             'despesas_por_categoria': df_despesas.groupby('Categoria')['Valor'].sum().sort_values(ascending=False).to_dict(),
             'despesas_por_grupo': df_despesas.groupby('Grupo')['Valor'].sum().sort_values(ascending=False).to_dict(),
@@ -117,11 +111,11 @@ def _fetch_and_process_data():
         _cache["data"] = dados_finais
         _cache["last_fetched"] = datetime.now()
         
-        print("Dados processados e cache atualizado com sucesso.")
+        print("\n--- PROCESSO CONCLUÍDO COM SUCESSO ---")
         return dados_finais
 
     except Exception as e:
-        print(f"ERRO CRÍTICO ao buscar ou processar dados: {e}")
+        print(f"--- ERRO CRÍTICO NO PROCESSAMENTO: {e} ---")
         import traceback
         traceback.print_exc()
         _cache["data"] = None
