@@ -76,10 +76,13 @@ def _fetch_and_process_data():
         # --- O resto do código de processamento continua igual ---
         df = df.drop(columns=['Unnamed: 0', 'â\x86\x91â\x86\x93'], errors='ignore')
         # Garante que estamos usando apenas as 8 primeiras colunas, ignorando qualquer extra
-        df = df.iloc[:, :8]
-        # --- FIM DA CORREÇÃO ---
+        # --- INÍCIO DA CORREÇÃO FINAL ---
+        # Pega as colunas da posição 1 até a 9 (ignorando a coluna A na posição 0)
+        df = df.iloc[:, 1:9]
 
+        # Renomeia as 8 colunas que selecionamos
         df.columns = ['Data', 'Tipo', 'Grupo', 'Categoria', 'Item', 'Conta', 'Pagamento', 'Valor']
+        # --- FIM DA CORREÇÃO FINAL ---
         # ...resto do código...
         # ... (todo o resto do seu código de processamento que já existia) ...
         # ... (o código é longo, então não vou colar tudo aqui, apenas garanta que ele continue após o bloco acima) ...
