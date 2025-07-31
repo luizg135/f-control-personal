@@ -31,6 +31,8 @@ def _clean_currency_value(value):
 
 # NO ARQUIVO services/finance_service.py
 
+# NO ARQUIVO services/finance_service.py
+
 def _fetch_and_process_data():
     """Busca os dados do Google Sheets e os processa de forma robusta."""
     print(f"Buscando dados da planilha... ({datetime.now()})")
@@ -43,12 +45,9 @@ def _fetch_and_process_data():
 
         df = pd.read_csv(BytesIO(response.content), header=1, encoding='utf-8')
         
-        # --- CORREÇÃO FINAL E PRECISA ---
-        # Ignora as 2 primeiras colunas e pega as 8 colunas de dados (da 3ª até a 10ª)
         df = df.iloc[:, 2:10]
         df.columns = ['Data', 'Tipo', 'Grupo', 'Categoria', 'Item', 'Conta', 'Pagamento', 'Valor']
         
-        # Lógica de limpeza aprimorada
         df['Valor'] = df['Valor'].apply(_clean_currency_value)
         df['Data'] = pd.to_datetime(df['Data'], dayfirst=True, errors='coerce')
         df.dropna(subset=['Data'], inplace=True)
@@ -59,43 +58,50 @@ def _fetch_and_process_data():
             print("AVISO: Nenhum dado válido encontrado na planilha após a limpeza.")
             return { 'resumo': {'saldo': 0, 'total_entradas': 0, 'total_saidas': 0, 'valor_alimentacao': 0, 'valor_conta': 0, 'valor_reserva': 0}, 'despesas_por_categoria': {}, 'despesas_por_grupo': {}, 'meses_disponiveis': [], 'por_tipo': {}, 'saldo_mensal': {}, 'transacoes': [] }
 
-        # Processamento e cálculos
         df['MesAno'] = df['Data'].dt.strftime('%Y-%m')
-        # --- INÍCIO DA CORREÇÃO ---
+        
+        # --- LÓGICA DE CÁLCULO DOS CARDS ---
         is_reserva = df['Categoria'].str.contains('Reserva', na=False)
         is_ajuste = df['Grupo'].str.contains('Ajuste', na=False)
         is_receita = df['Tipo'] == 'Receita'
         is_despesa = df['Tipo'] == 'Despesa'
-
-        # Calcula totais do período ignorando transações de ajuste E de reserva
+        
         total_entradas = df[is_receita & ~is_ajuste & ~is_reserva]['Valor'].sum()
         total_saidas = df[is_despesa & ~is_ajuste & ~is_reserva]['Valor'].sum()
-        # --- FIM DA CORREÇÃO ---
-        df_despesas = df[df['Tipo'] == 'Despesa']
-
-        is_reserva = df['Categoria'].str.contains('Reserva', na=False)
-        is_alimentacao = df['Conta'].str.contains('Alimentação', na=False)
-        is_receita = df['Tipo'] == 'Receita'
-        is_despesa = df['Tipo'] == 'Despesa'
         
+        # ... (cálculos de valor_conta, etc. continuam os mesmos) ...
+        is_alimentacao = df['Conta'].str.contains('Alimentação', na=False)
         receitas_normais = df[is_receita & ~is_reserva & ~is_alimentacao]['Valor'].sum()
         despesas_normais = df[is_despesa & ~is_reserva & ~is_alimentacao]['Valor'].sum()
         receitas_reserva_valor = df[is_receita & is_reserva]['Valor'].sum()
         despesas_reserva_valor = df[is_despesa & is_reserva]['Valor'].sum()
         valor_conta = (receitas_normais - despesas_normais) - receitas_reserva_valor + despesas_reserva_valor
-
         valor_alimentacao = df[is_alimentacao & is_receita]['Valor'].sum() - df[is_alimentacao & is_despesa]['Valor'].sum()
         valor_reserva = receitas_reserva_valor - despesas_reserva_valor
+        # --- FIM DA LÓGICA DOS CARDS ---
 
-        transacoes_dict = json.loads(df.to_json(orient='records', date_format='iso'))
+        transacoes_dict = df.to_json(orient='records', date_format='iso')
+        
+        # --- INÍCIO DA CORREÇÃO DO GRÁFICO DE BALANÇO MENSAL ---
+        
+        # 1. Filtra o dataframe para incluir apenas dados a partir de 2025
+        df_grafico = df[df['Data'].dt.year >= 2025].copy()
+        
+        # 2. Calcula o fluxo de caixa (entradas - saídas) para cada mês
+        df_grafico.loc[df_grafico['Tipo'] == 'Despesa', 'Valor'] *= -1
+        fluxo_mensal = df_grafico.groupby('MesAno')['Valor'].sum()
+        
+        # 3. Calcula o saldo acumulado (cumulative sum)
+        saldo_acumulado = fluxo_mensal.cumsum()
+        
+        # --- FIM DA CORREÇÃO ---
 
         dados_finais = {
             'resumo': { 'total_entradas': total_entradas, 'total_saidas': total_saidas, 'saldo': total_entradas - total_saidas, 'valor_conta': valor_conta, 'valor_alimentacao': valor_alimentacao, 'valor_reserva': valor_reserva },
-            'por_tipo': df.groupby('Tipo')['Valor'].sum().to_dict(),
-            'despesas_por_categoria': df_despesas.groupby('Categoria')['Valor'].sum().sort_values(ascending=False).to_dict(),
-            'despesas_por_grupo': df_despesas.groupby('Grupo')['Valor'].sum().sort_values(ascending=False).to_dict(),
-            'saldo_mensal': df.groupby('MesAno').apply(lambda x: x[x['Tipo']=='Receita']['Valor'].sum() - x[x['Tipo']=='Despesa']['Valor'].sum()).to_dict(),
-            'transacoes': transacoes_dict,
+            'despesas_por_categoria': df[is_despesa].groupby('Categoria')['Valor'].sum().sort_values(ascending=False).to_dict(),
+            'despesas_por_grupo': df[is_despesa].groupby('Grupo')['Valor'].sum().sort_values(ascending=False).to_dict(),
+            'saldo_mensal': saldo_acumulado.to_dict(), # <--- Usa o novo cálculo aqui
+            'transacoes': json.loads(transacoes_dict),
             'meses_disponiveis': sorted(df['MesAno'].unique().tolist())
         }
 
