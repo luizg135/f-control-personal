@@ -18,12 +18,28 @@ def get_all_data():
         print(f"Erro na rota /data: {e}")
         return jsonify({'error': 'Não foi possível obter os dados financeiros.'}), 500
 
-@financial_bp.route('/data/<string:mes_ano>')
-def get_data_by_month(mes_ano):
-    """Endpoint para obter dados financeiros filtrados por mês (ex: 2025-07)."""
+# NO ARQUIVO /routes/financial_routes.py
+
+import traceback # Verifique se este import está no topo do arquivo
+
+@financial_bp.route('/data')
+def get_all_data():
+    """Endpoint para obter todos os dados financeiros processados."""
     try:
-        # Pega todos os dados (do cache, provavelmente)
-        all_data = finance_service.get_financial_data()
+        data = finance_service.get_financial_data()
+        return jsonify(data)
+    except Exception as e:
+        # --- MUDANÇA PARA DEPURAÇÃO ---
+        # Captura e retorna o erro detalhado para descobrirmos a causa raiz
+        error_details = traceback.format_exc()
+        print(f"ERRO DETALHADO NA API: \n{error_details}")
+        
+        return jsonify({
+            "error": f"Ocorreu um erro interno no servidor.",
+            "detalhes_tecnicos": str(e),
+            "traceback": error_details
+        }), 500
+        # --- FIM DA MUDANÇA ---
         
         # Filtra as transações para o mês solicitado
         transacoes_mes = [
