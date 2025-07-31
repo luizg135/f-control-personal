@@ -19,7 +19,7 @@ financial_bp = Blueprint('financial', __name__)
 def get_all_data():
     """Endpoint para obter todos os dados financeiros processados."""
     try:
-        data = finance_service.get_financial_data()
+        data = finance_service._fetch_and_process_data()
         return jsonify(data)
     except Exception as e:
         # --- MUDANÇA PARA DEPURAÇÃO ---
