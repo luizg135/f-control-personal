@@ -1,4 +1,4 @@
-# /seu_projeto/services/finance_service.py
+# /seu_projeto_backend/services/finance_service.py
 
 import pandas as pd
 import requests
@@ -8,44 +8,24 @@ from io import BytesIO
 from datetime import datetime, timedelta
 from config import Config
 
-# --- Variáveis de Cache em Memória ---
-_cache = {
-    "data": None,
-    "last_fetched": None
-}
+_cache = { "data": None, "last_fetched": None }
 
 def _is_cache_valid():
-    """Verifica se o cache em memória ainda é válido."""
-    if not _cache["data"] or not _cache["last_fetched"]:
-        return False
-    
-    elapsed_time = datetime.now() - _cache["last_fetched"]
-    return elapsed_time < timedelta(seconds=Config.CACHE_DURATION_SECONDS)
+    if not _cache["data"] or not _cache["last_fetched"]: return False
+    return (datetime.now() - _cache["last_fetched"]) < timedelta(seconds=Config.CACHE_DURATION_SECONDS)
 
 def _clean_currency_value(value):
-    """Limpa e converte valores monetários no formato brasileiro."""
-    if pd.isna(value) or not value:
-        return 0.0
-    
+    if pd.isna(value) or not value: return 0.0
     value_str = str(value)
     value_str = re.sub(r'[R$\s"]', '', value_str)
-    
-    # Lida com o padrão 1.000,00
     if re.match(r'^\d{1,3}(\.\d{3})*,\d{2}$', value_str):
         value_str = value_str.replace('.', '').replace(',', '.')
     else:
-        # Lida com o padrão 1000,00
         value_str = value_str.replace(',', '.')
-        
-    try:
-        return float(value_str)
-    except (ValueError, TypeError):
-        return 0.0
-
-# No arquivo services/finance_service.py
+    try: return float(value_str)
+    except (ValueError, TypeError): return 0.0
 
 def _fetch_and_process_data():
-    """Busca os dados do Google Sheets e os processa, tentando múltiplas codificações."""
     print(f"Buscando dados da planilha... ({datetime.now()})")
     try:
         sheet_id = Config.GOOGLE_SHEET_URL.split('/d/')[1].split('/')[0]
@@ -54,40 +34,11 @@ def _fetch_and_process_data():
         response = requests.get(csv_url, timeout=15)
         response.raise_for_status()
 
-        # --- INÍCIO DA NOVA CORREÇÃO FLEXÍVEL ---
-        encodings_to_try = ['utf-8', 'latin-1', 'iso-8859-1', 'cp1252']
-        df = None
+        df = pd.read_csv(BytesIO(response.content), header=1, encoding='utf-8')
         
-        for encoding in encodings_to_try:
-            try:
-                print(f"Tentando ler com a codificação: {encoding}")
-                df = pd.read_csv(BytesIO(response.content), header=1, encoding=encoding)
-                print(f"Sucesso! Dados lidos com {encoding}.")
-                break  # Se funcionou, sai do laço
-            except UnicodeDecodeError:
-                print(f"Falha ao decodificar com {encoding}. Tentando a próxima...")
-                continue # Se falhou, tenta a próxima codificação
-
-        if df is None:
-            # Se nenhum encoding funcionou, lança um erro
-            raise ValueError("Não foi possível decodificar os dados da planilha com as codificações testadas.")
-        # --- FIM DA NOVA CORREÇÃO FLEXÍVEL ---
-        
-        # --- O resto do código de processamento continua igual ---
-        df = df.drop(columns=['Unnamed: 0', 'â\x86\x91â\x86\x93'], errors='ignore')
-        # Garante que estamos usando apenas as 8 primeiras colunas, ignorando qualquer extra
-        # --- INÍCIO DA CORREÇÃO FINAL ---
-        # Pega as colunas da posição 1 até a 9 (ignorando a coluna A na posição 0)
         df = df.iloc[:, 1:9]
-
-        # Renomeia as 8 colunas que selecionamos
         df.columns = ['Data', 'Tipo', 'Grupo', 'Categoria', 'Item', 'Conta', 'Pagamento', 'Valor']
-        # --- FIM DA CORREÇÃO FINAL ---
-        # ...resto do código...
-        # ... (todo o resto do seu código de processamento que já existia) ...
-        # ... (o código é longo, então não vou colar tudo aqui, apenas garanta que ele continue após o bloco acima) ...
         
-        # O processamento dos dados continua aqui...
         df = df.dropna(how='all', subset=df.columns[1:])
         df = df.dropna(subset=['Data', 'Tipo', 'Valor'])
 
@@ -104,15 +55,26 @@ def _fetch_and_process_data():
         total_entradas = df[df['Tipo'] == 'Receita']['Valor'].sum()
         total_saidas = df[df['Tipo'] == 'Despesa']['Valor'].sum()
         df_despesas = df[df['Tipo'] == 'Despesa']
-        
-        df_sem_reserva = df[~df['Categoria'].str.contains('Reserva', na=False)]
-        valor_conta = df_sem_reserva[df_sem_reserva['Tipo'] == 'Receita']['Valor'].sum() - df_sem_reserva[df_sem_reserva['Tipo'] == 'Despesa']['Valor'].sum()
-        
-        df_alimentacao = df[df['Conta'].str.contains('Alimentação', na=False)]
-        valor_alimentacao = df_alimentacao[df_alimentacao['Tipo'] == 'Receita']['Valor'].sum() - df_alimentacao[df_alimentacao['Tipo'] == 'Despesa']['Valor'].sum()
-        
-        df_reserva = df[df['Categoria'].str.contains('Reserva', na=False)]
-        valor_reserva = df_reserva[df_reserva['Tipo'] == 'Receita']['Valor'].sum() - df_reserva[df_reserva['Tipo'] == 'Despesa']['Valor'].sum()
+
+        # --- INÍCIO DA NOVA LÓGICA DE CÁLCULO ---
+        is_reserva = df['Categoria'].str.contains('Reserva', na=False)
+        is_alimentacao = df['Conta'].str.contains('Alimentação', na=False)
+        is_receita = df['Tipo'] == 'Receita'
+        is_despesa = df['Tipo'] == 'Despesa'
+
+        # Saldo em Conta: (Receitas Normais - Despesas Normais) - Receitas de Reserva (transferência p/ fora) + Despesas de Reserva (transferência p/ dentro)
+        receitas_normais = df[is_receita & ~is_reserva & ~is_alimentacao]['Valor'].sum()
+        despesas_normais = df[is_despesa & ~is_reserva & ~is_alimentacao]['Valor'].sum()
+        receitas_reserva_valor = df[is_receita & is_reserva]['Valor'].sum()
+        despesas_reserva_valor = df[is_despesa & is_reserva]['Valor'].sum()
+        valor_conta = (receitas_normais - despesas_normais) - receitas_reserva_valor + despesas_reserva_valor
+
+        # Saldo Alimentação: Apenas transações da conta Alimentação
+        valor_alimentacao = df[is_alimentacao & is_receita]['Valor'].sum() - df[is_alimentacao & is_despesa]['Valor'].sum()
+
+        # Saldo Reserva: Apenas transações da categoria Reserva
+        valor_reserva = receitas_reserva_valor - despesas_reserva_valor
+        # --- FIM DA NOVA LÓGICA DE CÁLCULO ---
 
         transacoes_dict = json.loads(df.to_json(orient='records', date_format='iso'))
 
@@ -141,17 +103,8 @@ def _fetch_and_process_data():
 
     except Exception as e:
         print(f"ERRO CRÍTICO ao buscar ou processar dados: {e}")
+        import traceback
+        traceback.print_exc()
         _cache["data"] = None
         _cache["last_fetched"] = None
         raise
-
-def get_financial_data():
-    """
-    Ponto de entrada principal. Retorna dados do cache se válidos,
-    senão, busca e processa novos dados.
-    """
-    if _is_cache_valid():
-        print("Retornando dados do cache.")
-        return _cache["data"]
-    
-    return _fetch_and_process_data()
